@@ -12,6 +12,7 @@ dataclasses-json==0.6.7
 datasets==3.0.1
 dill==0.3.8
 distro==1.9.0
+faiss-cpu==1.9.0
 filelock==3.16.1
 frozenlist==1.4.1
 fsspec==2024.6.1
