@@ -4,12 +4,16 @@ from pydantic import BaseModel
 from typing import Optional
 
 # langchain
-from langchain.prompts.chat import ChatPromptTemplate, SystemMessagePromptTemplate
+from langchain.prompts.chat import (
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
 from langchain_core.runnables import Runnable, RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
 # azure_openai
-from langchain_openai.llms.azure import AzureOpenAI
+from langchain_openai.chat_models.azure import AzureChatOpenAI
 from langchain_openai.embeddings.azure import AzureOpenAIEmbeddings
 
 # local
@@ -53,12 +57,14 @@ class LangchainBot:
         self.retriever_config = retriever_config
 
         # model
-        self.compose_llm = AzureOpenAI(
+        self.compose_llm = AzureChatOpenAI(
+            deployment_name="gpt-4o-mini",
             azure_endpoint=os.getenv("AZURE_OPENA_ENDPOINT"),
             openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
             openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
         )
-        self.stream_llm = AzureOpenAI(
+        self.stream_llm = AzureChatOpenAI(
+            deployment_name="gpt-4o-mini",
             azure_endpoint=os.getenv("AZURE_OPENA_ENDPOINT"),
             openai_api_key=os.getenv("AZURE_OPENAI_API_KEY"),
             openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
@@ -76,7 +82,7 @@ class LangchainBot:
         self.retriever = self.vectorstore.as_retriever(**vars(self.retriever_config))
 
         # prompt
-        self.prompt = SystemMessagePromptTemplate.from_template(
+        self.system_prompt = SystemMessagePromptTemplate.from_template(
             """
             以下の`context`の情報に基づいて、質問に回答してください。
             また`context`に関係のない質問は無視してください。
@@ -85,7 +91,10 @@ class LangchainBot:
             {context}
             """
         )
-        self.question = ChatPromptTemplate.from_template("""{question}""")
+        self.human_prompt = HumanMessagePromptTemplate.from_template("{question}")
+        self.prompt = ChatPromptTemplate.from_messages(
+            [self.system_prompt, self.human_prompt]
+        )
 
     def searching_context(self, query: str) -> str:
         """
@@ -121,7 +130,7 @@ class LangchainBot:
         # generate answer
         chain: Runnable = (
             {
-                "context": self.searching_context(query),
+                "context": self.searching_context,
                 "question": RunnablePassthrough(),
             }
             | self.prompt
