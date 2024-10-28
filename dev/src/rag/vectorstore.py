@@ -1,6 +1,6 @@
 import os
-from dotenv import load_dotenv
 from typing import Optional
+from dotenv import load_dotenv
 from pydantic import BaseModel
 from langchain_core.documents import Document
 from langchain_community.vectorstores.faiss import FAISS
@@ -18,7 +18,14 @@ load_dotenv("../../.env")
 
 
 class VectorStore:
+    """
+    VectorStore を生成するクラス
+    """
+
     def __init__(self):
+        """
+        初期化
+        """
         print(os.getenv("AZURE_OPENA_ENDPOINT"))
         self.vectorstore = Optional[FAISS]
         self.embeddings = AzureOpenAIEmbeddings(
@@ -32,13 +39,34 @@ class VectorStore:
         )
 
     class TextSplitConfig(BaseModel):
+        """
+        テキストを分割する際の設定
+
+        Args:
+            BaseModel (_type_): ベースモデル（Pydantic）
+        """
+
         separator: str = "。"
         chunk_size: int = 140
         chunk_overlap: int = 0
 
-    def create(self, config: TextSplitConfig, text: str) -> FAISS:
-        texts = self.text_split(text, config)  # split text into chunks
-        docs = [Document(page_content=text) for text in texts]
+    def create(
+        self,
+        split_config: Optional[TextSplitConfig] = None,
+        input_text: str = None,
+    ) -> FAISS:
+        """
+        VectorStore を新規生成する
+
+        Args:
+            config (TextSplitConfig): テキストを分割する際の設定. Defaults to None.
+            text (str): 分割するテキスト. Defaults to None.
+
+        Returns:
+            FAISS: VectorStore
+        """
+        texts = self.text_split(input_text, split_config)  # split text into chunks
+        docs = [Document(page_content=txt) for txt in texts]
 
         input(len(docs))
 
@@ -47,16 +75,55 @@ class VectorStore:
         )
         return self.vectorstore
 
-    def text_split(self, text: str, config: TextSplitConfig) -> list[str]:
+    def load(self, load_path: str) -> FAISS:
+        """
+        VectorStore をロードする
+
+        Args:
+            load_path (str): ロードするフォルダのパス
+
+        Returns:
+            FAISS: VectorStore
+        """
+        try:
+            self.vectorstore = FAISS.load_local(
+                folder_path=load_path,
+                embeddings=self.embeddings,
+            )
+        except FileNotFoundError:
+            return None
+        return self.vectorstore
+
+    def text_split(
+        self,
+        input_text: str = None,
+        split_config: Optional[TextSplitConfig] = None,
+    ) -> list[str]:
+        """
+        テキストを分割する
+
+        Args:
+            input_text (str, optional): 分割するテキスト. Defaults to None.
+            split_config (Optional[TextSplitConfig], optional): テキストを分割する際の設定. Defaults to None.
+
+        Returns:
+            list[str]: _description_
+        """
         splitter = CharacterTextSplitter(
-            separator=config.separator,
-            chunk_size=config.chunk_size,
-            chunk_overlap=config.chunk_overlap,
+            separator=split_config.separator,
+            chunk_size=split_config.chunk_size,
+            chunk_overlap=split_config.chunk_overlap,
         )
-        texts = splitter.split_text(text)
+        texts = splitter.split_text(input_text)
         return texts
 
     def save(self, save_path: str) -> None:
+        """
+        VectorStore を保存する
+
+        Args:
+            save_path (str): 保存するフォルダのパス
+        """
         self.vectorstore.save_local(folder_path=save_path)
 
 
@@ -67,7 +134,7 @@ if __name__ == "__main__":
     with open("../../data/bocchi.txt", "r", encoding="utf-8") as f:
         text = f.read()
 
-    vs.create(config=config, text=text)
+    vs.create(split_config=config, input_text=text)
     vs.save("../../data/vectorstore")
 
     print("Vector store created and saved.")
