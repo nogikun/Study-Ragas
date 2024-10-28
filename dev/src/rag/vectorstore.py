@@ -8,7 +8,7 @@ from langchain_community.vectorstores.faiss import FAISS
 # from langchain_openai.llms.azure import AzureOpenAI
 
 from langchain_openai.embeddings.azure import AzureOpenAIEmbeddings
-from langchain.embeddings import HuggingFaceEmbeddings  # test
+from langchain_community.embeddings import HuggingFaceEmbeddings  # test
 
 # from langchain_community.embeddings
 from langchain.text_splitter import CharacterTextSplitter
@@ -89,6 +89,7 @@ class VectorStore:
             self.vectorstore = FAISS.load_local(
                 folder_path=load_path,
                 embeddings=self.embeddings,
+                allow_dangerous_deserialization=True,
             )
         except FileNotFoundError:
             return None
