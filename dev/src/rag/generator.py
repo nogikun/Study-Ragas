@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 # langchain
@@ -11,6 +11,7 @@ from langchain.prompts.chat import (
 )
 from langchain_core.runnables import Runnable, RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.tools import tool
 
 # azure_openai
 from langchain_openai.chat_models.azure import AzureChatOpenAI
@@ -18,6 +19,8 @@ from langchain_openai.embeddings.azure import AzureOpenAIEmbeddings
 
 # local
 from vectorstore import VectorStore
+
+# from tools.search import SearchContext, searching_context
 
 # load environment variables
 load_dotenv("../../.env")
@@ -33,9 +36,37 @@ class RetrieverConfig(BaseModel):
 
     search_type: str = "similarity_score_threshold"  # 類似度を閾値で検索
     search_kwargs: Optional[dict] = {
-        "score_threshold": 0.5,  # 類似度の閾値（以上）
-        "k": 3,  # 検索結果の上位n件を返す
+        "score_threshold": 0.6,  # 類似度の閾値（以上）
+        "k": 2,  # 検索結果の上位n件を返す
     }
+
+
+class SearchContext(BaseModel):
+    """
+    tool用のスキーマ
+    Args:
+        BaseModel (_type_): べースモデル（Pydantic）
+    """
+
+    query: str = Field(..., discription="質問")
+
+
+@tool
+def searching_context(query: str) -> str:
+    """
+    質問に対応するコンテキストを検索する
+    Args:
+        question (str): 質問
+    Returns:
+        str: コンテキスト
+    """
+    vectorstore_manager = VectorStore()
+    vectorstore = vectorstore_manager.load("../../data/vectorstore")
+    retriever = vectorstore.as_retriever(**vars(RetrieverConfig))
+    # search context
+    context = ",".join([content.page_content for content in retriever.invoke(query)])
+    print(context)  # debug
+    return context
 
 
 class LangchainBot:
@@ -76,12 +107,12 @@ class LangchainBot:
             openai_api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
         )
 
-        # vectorstore
-        self.vectorstore_manager = VectorStore()
-        self.vectorstore = self.vectorstore_manager.load("../../data/vectorstore")
-        self.retriever = self.vectorstore.as_retriever(**vars(self.retriever_config))
+        # # vectorstore
+        # self.vectorstore_manager = VectorStore()
+        # self.vectorstore = self.vectorstore_manager.load("../../data/vectorstore")
+        # self.retriever = self.vectorstore.as_retriever(**vars(self.retriever_config))
 
-        # prompt
+        # stream_llm prompt
         self.system_prompt = SystemMessagePromptTemplate.from_template(
             """
             以下の`context`の情報に基づいて、質問に回答してください。
@@ -96,21 +127,47 @@ class LangchainBot:
             [self.system_prompt, self.human_prompt]
         )
 
-    def searching_context(self, query: str) -> str:
+        # compose_llm prompt
+        self.compose_llm_prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate.from_template(
+                    """
+                    質問からコンテキストを検索するための文章を提供してください。
+                    コンテキストに含まれる文章は説明調の文章であるる為、下記の例を参考にしてください。
+                    
+                    下記に例を示します。
+                    例: 
+                    質問: `A`とは何のことを示しますか？
+                    output: `A`はBBBのことを示します。BBBはCCCの事です。
+                    """
+                ),
+                HumanMessagePromptTemplate.from_template("{question}"),
+            ]
+        )
+
+        self.tools = [SearchContext]
+
+    def searching_context_with_query(self, question: str) -> str:
         """
-        質問に対応するコンテキストを検索する
+        質問からクエリを生成する
 
         Args:
             question (str): 質問
 
         Returns:
-            str: コンテキスト
+            str: クエリ
         """
-        # search context
-        context = ",".join(
-            [content.page_content for content in self.retriever.invoke(query)]
-        )
-        print(context)
+        llm_with_tools = self.compose_llm.bind_tools(self.tools)
+
+        # generate context
+        res = llm_with_tools.invoke(question).tool_calls
+        print(res)  # debug
+        contexts = []
+        for r in res:
+            args = r["args"]
+            input(args)  # debug
+            contexts.append(searching_context.invoke(args))
+        context = ",".join(contexts)  # ここで結合している
         return context
 
     def invoke(self, question: str = "こんにちは") -> str:
@@ -124,13 +181,10 @@ class LangchainBot:
             str: チャットボットの応答
         """
 
-        # cpmpose query
-        query = question  # 一旦そのまま
-
         # generate answer
         chain: Runnable = (
             {
-                "context": self.searching_context,
+                "context": self.searching_context_with_query,
                 "question": RunnablePassthrough(),
             }
             | self.prompt
@@ -143,4 +197,4 @@ class LangchainBot:
 
 if __name__ == "__main__":
     bot = LangchainBot()
-    print(bot.invoke("こんにちは"))
+    print(bot.invoke("ぼっちちゃんとはどんなキャラクターですか？"))
